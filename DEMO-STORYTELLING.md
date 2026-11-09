@@ -100,8 +100,8 @@ MCP podría descubrirla y ejecutarla. Aquí no.
 
 ## 4. `test-guardrail-pii.sh` — "El mismo dato, dos verdades"
 
-**Escena.** Ana (backoffice, autorizada) y Luis (soporte) consultan **exactamente la misma
-cuenta con la misma herramienta**. El dato trae un número de tarjeta completo (PAN). ¿Deben
+**Escena.** Ana (backoffice, autorizada) y Luis (soporte) consultan **exactamente el mismo
+cliente con la misma herramienta**. El dato trae el DNI completo del cliente. ¿Deben
 ver lo mismo? No. Y la decisión no la toma la app: la toma un **guardrail de contenido
 externo** al que el gateway le cuenta quién pregunta.
 
@@ -111,11 +111,11 @@ externo** al que el gateway le cuenta quién pregunta.
 ```
 
 **Lo que ve la audiencia (beats).**
-1. **Luis** pide el saldo → `tarjeta: ************6467`. El PAN sale **enmascarado**:
+1. **Luis** pide el cliente → `dni: ****8912`. El DNI sale **enmascarado**:
    solo los últimos 4.
-2. **Ana** pide lo mismo → `tarjeta: 4539148803436467`. Lo ve **en claro**, porque su token
+2. **Ana** pide lo mismo → `dni: 45678912`. Lo ve **en claro**, porque su token
    trae `pii.read`.
-3. **Por campo** — el `saldo` y la `cuenta` quedan intactos en ambos casos. Solo se redacta
+3. **Por campo** — el `nombre` y el `id` quedan intactos en ambos casos. Solo se redacta
    lo sensible.
 4. (En los logs del guardrail se ve la decisión por usuario/rol: trazabilidad total.)
 
@@ -146,7 +146,7 @@ Aquí no es un añadido: el gateway **ya audita todo lo de las 4 historias anter
      `reason=Authorization` (denegado).
    - Historia 2 → ráfaga de `transferir` con `reason=RateLimit` para `audit_user=ana`.
    - Historia 3 → intento a `delete_account` rechazado.
-   - Historia 4 → `audit_tool=get_saldo` para ana y para luis (y en el log del guardrail,
+   - Historia 4 → `audit_tool=get_cliente` para ana y para luis (y en el log del guardrail,
      la decisión claro vs enmascarado por rol).
 3. **Cómo llega ahí** (sin Promtail ni socket de Docker): el gateway empuja los access logs
    por **OTLP/gRPC** a un **OTel Collector**, que los reenvía a **Loki** (OTLP/HTTP), y

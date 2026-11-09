@@ -92,20 +92,20 @@ sequenceDiagram
     participant X as ext-mcp-guardrail (ExtMcp :4445)
     participant O as otel-collector → Loki
 
-    C->>G: tools/call "get_saldo" (Bearer JWT)
+    C->>G: tools/call "get_cliente" (Bearer JWT)
     Note over G: AuthN + AuthZ OK<br/>(cualquier autenticado consulta)
-    G->>M: tools/call "get_saldo"
-    M-->>G: result { cuenta, saldo, tarjeta: PAN completo }
+    G->>M: tools/call "get_cliente"
+    M-->>G: result { id, nombre, dni: DNI completo }
     G->>X: CheckResponse(mcp_response=result,<br/>metadata={user, roles})
     alt roles contiene pii.read (ana)
         X-->>G: Pass (sin cambios)
-        G-->>C: tarjeta = 4539148803436467  (EN CLARO)
+        G-->>C: dni = 45678912  (EN CLARO)
     else sin pii.read (luis)
-        Note over X: enmascara PAN por campo<br/>(saldo/cuenta intactos)
-        X-->>G: mutated { tarjeta: ************6467 }
-        G-->>C: tarjeta = ************6467  (ENMASCARADO)
+        Note over X: enmascara DNI por campo<br/>(nombre/id intactos)
+        X-->>G: mutated { dni: ****8912 }
+        G-->>C: dni = ****8912  (ENMASCARADO)
     end
-    G-)O: access log audit_user, audit_tool=get_saldo
+    G-)O: access log audit_user, audit_tool=get_cliente
     Note over O: cada des-enmascarado queda trazado
 ```
 
@@ -113,5 +113,5 @@ Puntos para narrar:
 - El dato sensible **nunca sale del perímetro** sin autorización; la decisión la toma el
   guardrail, no la app ni el MCP.
 - `failureMode: failClosed` → si el guardrail cae, la respuesta **se rechaza** (no se filtra PII).
-- El enmascarado es **por campo** (solo `tarjeta`), y es **agnóstico al esquema** (recorre el
+- El enmascarado es **por campo** (solo `dni`), y es **agnóstico al esquema** (recorre el
   JSON que venga). Un solo guardrail sirve a todo el gateway y ramifica por MCP si hace falta.

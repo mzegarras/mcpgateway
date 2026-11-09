@@ -102,7 +102,7 @@ mcp:
       - deny: 'has(mcp.tool.name) && mcp.tool.name == "transferir" && has(mcp.tool.arguments.monto) && mcp.tool.arguments.monto > 5000'
 
     # --- Guardrail de CONTENIDO externo (caso 3): el gateway envía la RESPUESTA de cada
-    # tools/call a un servidor gRPC ExtMcp, que enmascara PII (PAN) por campo. La decisión
+    # tools/call a un servidor gRPC ExtMcp, que enmascara PII (DNI) por campo. La decisión
     # es por CONTEXTO: 'metadata' manda los claims del JWT al guardrail por CEL, y el server
     # devuelve el dato en claro si el rol es 'pii.read', o enmascarado si no.
     # failClosed: si el guardrail cae, la respuesta se rechaza (no se filtra PII).

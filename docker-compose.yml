@@ -104,7 +104,7 @@ services:
       - redis
 
   # --- Guardrail de contenido externo (ExtMcp/gRPC): el gateway le manda cada
-  # respuesta de tool y él enmascara el PAN salvo que el JWT traiga rol 'pii.read'.
+  # respuesta de tool y él enmascara el DNI salvo que el JWT traiga rol 'pii.read'.
   ext-mcp-guardrail:
     build: ./ext-mcp-guardrail
     expose: ["4445"]   # gRPC h2c: lo consume el gateway por red interna (DNS red default)
