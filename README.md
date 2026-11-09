@@ -9,6 +9,8 @@
 ![MCP](https://img.shields.io/badge/protocol-MCP-6E56CF)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
+![Misma tool, misma cuenta, dos respuestas según el rol: el gateway enmascara la PII según quién pregunta](docs/pii-gateway.png)
+
 ---
 
 ## ⭐ El feature estrella: el mismo dato, dos verdades (PII por contexto)
