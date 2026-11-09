@@ -2,8 +2,8 @@
 # Servidor de guardrail externo (ExtMcp) para agentgateway.
 # Implementa el proto agentgateway.dev.ext_mcp.ExtMcp (gRPC/h2c):
 #   - CheckRequest : no toca la request (pass).
-#   - CheckResponse: enmascara PII (PAN de tarjeta) en el resultado de las tools,
-#                    SALVO que el llamante traiga el rol 'pii.read' en su JWT.
+#   - CheckResponse: enmascara PII (p. ej. DNI, nº de tarjeta) en el resultado de las
+#                    tools, SALVO que el llamante traiga el rol 'pii.read' en su JWT.
 #
 # El contexto de identidad llega en metadata_context, que el gateway rellena con las
 # expresiones CEL declaradas en config.yaml (mcpGuardrails.processors[].metadata),
@@ -24,7 +24,7 @@ import ext_mcp_pb2_grpc as pbg
 ROLE_CLEAR = "pii.read"  # rol que autoriza ver el dato en claro (des-enmascarado)
 
 # Enmascara cualquier dígito que tenga >=4 dígitos por delante => deja ver solo los
-# últimos 4 de una secuencia numérica larga (PAN, etc.). No toca importes "1250.75"
+# últimos 4 de una secuencia numérica larga (DNI, PAN, etc.). No toca importes "1250.75"
 # ni fechas "2026-11-01" (no tienen 4 dígitos consecutivos por delante).
 _LONG_NUM = re.compile(r"\d(?=\d{4})")
 
