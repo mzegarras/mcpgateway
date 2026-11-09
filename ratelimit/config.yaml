@@ -1,0 +1,9 @@
+# Config del servicio Envoy RateLimit (RLS). El 'domain' y las 'key' deben coincidir
+# con lo que envía agentgateway en su política remoteRateLimit.
+# Límite: 10 requests/minuto POR CADA valor distinto de 'user' (= cada usuario Keycloak).
+domain: agentgateway
+descriptors:
+- key: user
+  rate_limit:
+    unit: minute
+    requests_per_unit: 10

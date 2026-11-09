@@ -1,0 +1,111 @@
+{
+  "realm": "manubank",
+  "enabled": true,
+  "sslRequired": "none",
+  "roles": {
+    "realm": [
+      {
+        "name": "pagos.read"
+      },
+      {
+        "name": "pagos.write"
+      },
+      {
+        "name": "pii.read"
+      }
+    ]
+  },
+  "groups": [
+    {
+      "name": "dev"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "mcp-gateway",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:*",
+        "http://127.0.0.1:*",
+        "http://127.0.0.1:5598/oauth/callback",
+        "https://vscode.dev/redirect"
+      ],
+      "webOrigins": [
+        "*"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "aud",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "mcp-gateway",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "ana",
+      "enabled": true,
+      "email": "ana@manubank.local",
+      "emailVerified": true,
+      "firstName": "Ana",
+      "lastName": "Perez",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ana",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pagos.read",
+        "pagos.write",
+        "pii.read",
+        "offline_access"
+      ],
+      "groups": [
+        "/dev"
+      ]
+    },
+    {
+      "username": "luis",
+      "enabled": true,
+      "email": "luis@manubank.local",
+      "emailVerified": true,
+      "firstName": "Luis",
+      "lastName": "Rojas",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "luis",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "pagos.read",
+        "offline_access"
+      ]
+    }
+  ]
+}

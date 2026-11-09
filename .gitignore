@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# gRPC generado (se regenera desde el .proto en build)
+*_pb2.py
+*_pb2_grpc.py
+
+# Editores / IDE
+.vscode/
+.idea/
+*.swp
+
+# Temporales
+/tmp/
+*.log

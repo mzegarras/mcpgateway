@@ -1,0 +1,27 @@
+# OTel Collector: recibe access logs (y trazas) de agentgateway por OTLP/gRPC y reenvía
+# los logs a Loki por OTLP/HTTP (/otlp/v1/logs). Las trazas van al debug (no hay backend).
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch: {}
+
+exporters:
+  otlphttp/loki:
+    logs_endpoint: http://loki:3100/otlp/v1/logs
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki, debug]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]

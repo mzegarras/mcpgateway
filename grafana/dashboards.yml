@@ -1,0 +1,7 @@
+# Provisioning: carga automáticamente los dashboards de /var/lib/grafana/dashboards.
+apiVersion: 1
+providers:
+- name: default
+  type: file
+  options:
+    path: /var/lib/grafana/dashboards

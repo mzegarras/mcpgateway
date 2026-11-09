@@ -1,0 +1,9 @@
+# Prometheus: scrapea el endpoint /metrics del gateway.
+# El gateway comparte el netns de keycloak, así que su :15020 se alcanza como 'keycloak:15020'.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+- job_name: agentgateway
+  static_configs:
+  - targets: ["keycloak:15020"]

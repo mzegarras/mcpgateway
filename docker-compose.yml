@@ -1,0 +1,146 @@
+# PoC: agentgateway como MCP gateway con Keycloak (fase 1) y dos MCP custom en FastMCP
+# Sin bind mounts: la config va dentro de las imágenes (cambios => docker compose up --build)
+#   Gateway MCP:     http://localhost:3000/mcp
+#   Admin UI:        http://localhost:15000/ui
+#   Keycloak admin:  http://localhost:8080  (admin / admin)
+#   Prometheus:      http://localhost:9090
+#   Grafana:         http://localhost:3001  (login deshabilitado, acceso anónimo admin)
+#   Auditoría:       Grafana -> dashboard "agentgateway audit" (access logs OTLP -> Loki)
+services:
+  keycloak:
+    build:
+      context: ./keycloak
+      dockerfile_inline: |
+        FROM quay.io/keycloak/keycloak:26.0
+        COPY realm-manubank.json /opt/keycloak/data/import/realm-manubank.json
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: http://localhost:8080
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8080:8080"
+      # El gateway comparte este network namespace (network_mode: service:keycloak),
+      # por eso SUS puertos se publican aquí, en el dueño del namespace.
+      - "3000:3000"
+      - "15000:15000"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\n\r\n' >&3 && grep -q UP <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # --- Observabilidad (métricas): Prometheus scrapea el gateway, Grafana lo grafica.
+  prometheus:
+    build:
+      context: ./prometheus
+      dockerfile_inline: |
+        FROM prom/prometheus:latest
+        COPY prometheus.yml /etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    build:
+      context: ./grafana
+      dockerfile_inline: |
+        FROM grafana/grafana:latest
+        COPY datasource.yml /etc/grafana/provisioning/datasources/datasource.yml
+        COPY dashboards.yml /etc/grafana/provisioning/dashboards/dashboards.yml
+        COPY agentgateway.json /var/lib/grafana/dashboards/agentgateway.json
+        COPY audit.json /var/lib/grafana/dashboards/audit.json
+    environment:
+      # Sin login: acceso anónimo como admin (solo para la PoC).
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    ports:
+      # Grafana escucha en 3000 dentro del contenedor; 3000 del host lo usa el gateway.
+      - "3001:3000"
+    depends_on:
+      - prometheus
+      - loki
+
+  # --- Auditoría (logs): agentgateway --OTLP/gRPC--> otel-collector --OTLP/HTTP--> Loki.
+  # Sin Promtail ni socket de Docker.
+  loki:
+    image: grafana/loki:latest
+    expose: ["3100"]   # OTLP/HTTP ingest (collector) + query (grafana), por red interna
+
+  otel-collector:
+    build:
+      context: ./otel-collector
+      dockerfile_inline: |
+        FROM otel/opentelemetry-collector-contrib:0.146.0
+        COPY otel-collector-config.yaml /etc/otelcol-contrib/config.yaml
+    expose: ["4317"]   # OTLP/gRPC: lo usa el gateway para empujar access logs
+    depends_on:
+      - loki
+
+  # --- Rate limit remoto (global): servicio Envoy RLS + Redis para los contadores.
+  redis:
+    image: redis:7-alpine
+    expose: ["6379"]
+
+  ratelimit:
+    build:
+      context: ./ratelimit
+      dockerfile_inline: |
+        FROM envoyproxy/ratelimit:master
+        COPY config.yaml /data/ratelimit/config/config.yaml
+    command: ["/bin/ratelimit"]
+    environment:
+      REDIS_SOCKET_TYPE: tcp
+      REDIS_URL: redis:6379
+      RUNTIME_ROOT: /data
+      RUNTIME_SUBDIRECTORY: ratelimit
+      RUNTIME_WATCH_ROOT: "false"
+      RUNTIME_IGNOREDOTFILES: "true"
+      USE_STATSD: "false"
+      LOG_LEVEL: debug
+    expose: ["8081"]   # gRPC RLS: lo consume el gateway por red interna
+    depends_on:
+      - redis
+
+  # --- Guardrail de contenido externo (ExtMcp/gRPC): el gateway le manda cada
+  # respuesta de tool y él enmascara el PAN salvo que el JWT traiga rol 'pii.read'.
+  ext-mcp-guardrail:
+    build: ./ext-mcp-guardrail
+    expose: ["4445"]   # gRPC h2c: lo consume el gateway por red interna (DNS red default)
+
+  mcp-cuentas:
+    build: ./mcp-cuentas
+    expose: ["8000"]
+
+  mcp-pagos:
+    build: ./mcp-pagos
+    expose: ["8000"]
+
+  agentgateway:
+    build:
+      context: ./agentgateway
+      dockerfile_inline: |
+        FROM ghcr.io/agentgateway/agentgateway:latest
+        COPY config.yaml /config/config.yaml
+    command: ["-f", "/config/config.yaml"]
+    # Comparte el netns de keycloak: así 'localhost:8080' dentro del gateway ALCANZA
+    # a Keycloak, y el issuer puede ser localhost (mismo nombre dentro y en el navegador).
+    # Sus puertos (3000/15000) se declaran en el servicio keycloak, dueño del netns.
+    network_mode: "service:keycloak"
+    # Admin UI escucha en 127.0.0.1 por defecto; forzamos 0.0.0.0. OJO: admin sin auth.
+    environment:
+      ADMIN_ADDR: 0.0.0.0:15000
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      mcp-cuentas:
+        condition: service_started
+      mcp-pagos:
+        condition: service_started
+      ratelimit:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+      ext-mcp-guardrail:
+        condition: service_started

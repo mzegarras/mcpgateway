@@ -1,0 +1,127 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+# Config simplificada "mcp": un endpoint MCP en :3000 que multiplexa varios targets.
+# Validar: agentgateway -f config.yaml --validate-only
+
+# --- Observabilidad (métricas). 'config' convive con 'mcp' en el top-level.
+config:
+  # Endpoint Prometheus (/metrics) en 0.0.0.0 para que Prometheus lo scrapee desde otro
+  # contenedor. Por defecto bindea en localhost y no sería alcanzable.
+  statsAddr: "0.0.0.0:15020"
+
+# --- Auditoría (Observability > Access logs): el gateway EXPORTA los access logs por
+# OTLP/gRPC a un OTel Collector, que los traduce y los reenvía a Loki (OTLP/HTTP).
+# (El gateway 1.7.0 no exporta logs por OTLP/HTTP directo, y Loki solo habla OTLP/HTTP;
+#  el collector hace de puente.) Sin Promtail ni socket de Docker.
+# 'add' enriquece cada entrada; la decisión (allow/deny/ratelimit) ya viene en 'reason'.
+frontendPolicies:
+  # PRUEBA: tracing activo (hipótesis: el exporter OTLP solo arranca si tracing está on).
+  tracing:
+    host: otel-collector:4317
+    randomSampling: true
+  accessLog:
+    add:
+      audit_user: 'has(jwt.preferred_username) ? jwt.preferred_username : ""'
+      audit_tool: 'has(mcp.tool.name) ? mcp.tool.name : ""'
+      audit_target: 'has(mcp.tool.target) ? mcp.tool.target : ""'
+    otlp:
+      host: otel-collector:4317   # OTLP/gRPC al collector (resuelto por DNS red default)
+
+mcp:
+  port: 3000
+  policies:
+    cors:
+      allowOrigins: ["*"]
+      allowHeaders: ["mcp-protocol-version", "content-type", "mcp-session-id", "authorization"]
+      exposeHeaders: ["Mcp-Session-Id"]
+
+    # --- Autenticación inbound (fase 1: Keycloak).
+    # Fase 2 (Entra): issuer https://login.microsoftonline.com/<tenant>/v2.0,
+    #   jwks https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys, provider: entra
+    mcpAuthentication:
+      mode: strict
+      # El gateway comparte el netns de keycloak, así que 'localhost:8080' lo alcanza:
+      # un ÚNICO hostname (localhost) sirve dentro del contenedor y en el navegador.
+      issuer: http://localhost:8080/realms/manubank
+      audiences: ["mcp-gateway"]
+      jwks:
+        url: http://localhost:8080/realms/manubank/protocol/openid-connect/certs
+      provider:
+        keycloak: {}
+      resourceMetadata:
+        # Anunciar a Keycloak como authorization server DIRECTO (no el proxy del gateway).
+        # Evita el RFC 9207 IssuerMismatch: el cliente usa el metadata real de Keycloak,
+        # cuyo issuer coincide con el iss que Keycloak devuelve tras el login.
+        authorizationServers: ["http://localhost:8080/realms/manubank"]
+        resource: http://localhost:3000/mcp
+        scopesSupported: ["openid"]
+        bearerMethodsSupported: ["header"]
+
+    # --- Rate limit GLOBAL (remote): cuota compartida en un servicio RLS externo + Redis.
+    # 10 req/min POR USUARIO, pero SOLO sobre la tool 'transferir' (endpoint exclusivo).
+    # El 'conditional' evalúa en CADA request; has() evita error en initialize/tools/list
+    # (donde mcp.tool.name no existe). Si no matchea, no se aplica rate limit.
+    remoteRateLimit:
+      conditional:
+      # Campos de la política INLINE junto al 'condition' (no hay wrapper 'body').
+      # Sin entry de fallback => si no matchea, no se aplica rate limit.
+      - condition: 'has(mcp.tool.name) && mcp.tool.name == "transferir"'
+        host: ratelimit:8081          # el gateway comparte el netns de keycloak => DNS red default
+        domain: agentgateway          # debe coincidir con ratelimit/config.yaml
+        failureMode: failOpen         # si el RLS cae, deja pasar
+        descriptors:
+        - entries:
+          - key: user                 # key debe coincidir con el descriptor del servidor RLS
+            value: 'jwt.preferred_username'
+          type: requests              # 1 token por request HTTP (no por tokens de LLM)
+
+    # --- Autorización por tool: reglas CEL, OR entre sí, deny por defecto.
+    # Filtra tools/list y bloquea tools/call. mcp.tool.name = nombre original (sin prefijo).
+    mcpAuthorization:
+      rules:
+      # Cualquier usuario autenticado puede consultar cuentas (solo get_*)
+      - 'mcp.tool.target == "cuentas" && mcp.tool.name.startsWith("get_")'
+      # Transferir requiere rol pagos.write. El tope de monto NO va aquí: mcpAuthorization
+      # se evalúa ANTES de tener los argumentos, así que mcp.tool.arguments no existe en
+      # esta fase (ver issue agentgateway #3092). El límite por monto va en 'authorization'
+      # (abajo), que sí lee mcp.tool.arguments en tiempo de request.
+      - 'mcp.tool.target == "pagos" && "pagos.write" in jwt.realm_access.roles && mcp.tool.name == "transferir"'
+      # Consultas de pagos para el rol pagos.read
+      - 'mcp.tool.target == "pagos" && "pagos.read" in jwt.realm_access.roles && mcp.tool.name.startsWith("get_")'
+
+    # --- Autorización por ARGUMENTOS (tope de monto). A diferencia de mcpAuthorization,
+    # esta policy de ruta se evalúa con el request ya recibido y SÍ ve mcp.tool.arguments.
+    # Solo hay reglas 'deny' => semántica denylist: todo lo demás pasa; únicamente se
+    # bloquea 'transferir' con monto > 5000. Los has() evitan error en initialize/tools/list
+    # y en tools/call de otras tools (donde mcp.tool.name o .arguments.monto no existen).
+    authorization:
+      rules:
+      # Tool filtering: 'delete_account' queda fuera del allowlist de mcpAuthorization, así
+      # que ya está oculta de tools/list. Este deny explícito, además, bloquea la llamada
+      # directa por nombre y deja el filtro auto-documentado en la config.
+      - deny: 'has(mcp.tool.name) && mcp.tool.name == "delete_account"'
+      - deny: 'has(mcp.tool.name) && mcp.tool.name == "transferir" && has(mcp.tool.arguments.monto) && mcp.tool.arguments.monto > 5000'
+
+    # --- Guardrail de CONTENIDO externo (caso 3): el gateway envía la RESPUESTA de cada
+    # tools/call a un servidor gRPC ExtMcp, que enmascara PII (PAN) por campo. La decisión
+    # es por CONTEXTO: 'metadata' manda los claims del JWT al guardrail por CEL, y el server
+    # devuelve el dato en claro si el rol es 'pii.read', o enmascarado si no.
+    # failClosed: si el guardrail cae, la respuesta se rechaza (no se filtra PII).
+    mcpGuardrails:
+      processors:
+      - kind: remote
+        host: ext-mcp-guardrail:4445   # gRPC h2c (DNS red default; el gateway comparte netns de keycloak)
+        failureMode: failClosed
+        metadata:
+          roles: 'has(jwt.realm_access) && has(jwt.realm_access.roles) ? jwt.realm_access.roles : []'
+          user: 'has(jwt.preferred_username) ? jwt.preferred_username : ""'
+        methods:
+          "tools/call": response
+
+  targets:
+  # MCP custom (streamable HTTP). No validan JWT: confían en el gateway por red.
+  - name: cuentas
+    mcp:
+      host: http://mcp-cuentas:8000/mcp
+  - name: pagos
+    mcp:
+      host: http://mcp-pagos:8000/mcp

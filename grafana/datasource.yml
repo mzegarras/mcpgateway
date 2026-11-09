@@ -1,0 +1,14 @@
+# Provisioning: deja Prometheus como datasource por defecto al arrancar (sin clicks).
+apiVersion: 1
+datasources:
+- name: Prometheus
+  type: prometheus
+  uid: prometheus          # uid fijo para que el dashboard lo referencie
+  access: proxy
+  url: http://prometheus:9090
+  isDefault: true
+- name: Loki
+  type: loki
+  uid: loki                # uid fijo para que el dashboard de auditoría lo referencie
+  access: proxy
+  url: http://loki:3100
